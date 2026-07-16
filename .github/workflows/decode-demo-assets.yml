@@ -1,0 +1,48 @@
+name: Decode demo assets
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'demo-assets/**'
+      - '.github/workflows/decode-demo-assets.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  decode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reassemble and decode base64 demo assets
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # Reassemble split parts
+          for man in demo-assets/*.b64.parts; do
+            base="${man%.parts}"
+            echo "Assembling $base from $man"
+            : > "$base"
+            while IFS= read -r part; do
+              [ -z "$part" ] && continue
+              cat "demo-assets/$part" >> "$base"
+            done < "$man"
+          done
+          # Decode all .b64 files
+          for b64 in demo-assets/*.b64; do
+            out="${b64%.b64}"
+            base64 -d "$b64" > "$out"
+            echo "Decoded $b64 -> $out ($(wc -c < "$out") bytes)"
+          done
+          ls -lh demo-assets/*.{jpg,mp4} 2>/dev/null || ls -lh demo-assets/
+
+      - name: Commit decoded binaries if changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Add decoded demo images and 10s videos"
+          file_pattern: 'demo-assets/*.jpg demo-assets/*.mp4'
+          commit_user_name: github-actions[bot]
+          commit_user_email: github-actions[bot]@users.noreply.github.com

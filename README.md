@@ -135,6 +135,22 @@ SMOKE_PROMPT="Say hello" python -m grok_chat_bridge --smoke-test
 - [grok-build](https://github.com/xai-org/grok-build)
 - Tested grok: `0.2.101 (5bc4b5dfad)`
 
+
+
+## Demo assets
+
+Promotional images and **10-second** demo videos for `grok-chat-bridge`:
+
+| Asset | Description |
+|-------|-------------|
+| [`demo-assets/hero-banner.jpg`](demo-assets/hero-banner.jpg) | Hero banner — chat apps → bridge → Grok / xAI |
+| [`demo-assets/architecture-diagram.jpg`](demo-assets/architecture-diagram.jpg) | ACP architecture diagram |
+| [`demo-assets/chat-terminal-demo.jpg`](demo-assets/chat-terminal-demo.jpg) | Chat + terminal mockup |
+| [`demo-assets/demo-architecture-flow.mp4`](demo-assets/demo-architecture-flow.mp4) | 10s architecture flow video |
+| [`demo-assets/demo-chat-terminal.mp4`](demo-assets/demo-chat-terminal.mp4) | 10s chat/terminal demo video |
+
+Binary files are committed via GitHub Actions from the `.b64` sources after push.
+
 ## License
 
 Apache-2.0
