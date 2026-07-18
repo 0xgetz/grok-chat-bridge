@@ -12,7 +12,7 @@ jobs:
   decode:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Decode base64 parts into images and videos
         run: |
           set -euo pipefail
