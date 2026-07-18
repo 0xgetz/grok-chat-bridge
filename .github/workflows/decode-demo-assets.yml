@@ -35,7 +35,7 @@ jobs:
             echo "Decoded $out ($(wc -c < "$out") bytes)"
           done
           ls -lh demo-assets/*.{jpg,mp4} 2>/dev/null || true
-      - uses: stefanzweifel/git-auto-commit-action@v5
+      - uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "Add decoded demo images and 10s videos"
           file_pattern: 'demo-assets/*.jpg demo-assets/*.mp4'
