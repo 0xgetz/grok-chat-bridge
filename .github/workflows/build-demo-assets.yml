@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'scripts/build_demo_assets.py.gz.b64'
       - 'scripts/build_demo_assets.py'
       - '.github/workflows/build-demo-assets.yml'
   workflow_dispatch:
@@ -13,14 +14,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Decode build script
+        run: |
+          set -euo pipefail
+          if [ -f scripts/build_demo_assets.py.gz.b64 ]; then
+            base64 -d scripts/build_demo_assets.py.gz.b64 | gunzip > scripts/build_demo_assets.py
+          fi
+          test -f scripts/build_demo_assets.py
+          head -3 scripts/build_demo_assets.py
       - name: Install ffmpeg and fonts
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
       - name: Build demo images and 10s videos
         run: python3 scripts/build_demo_assets.py
-      - name: Commit generated assets
+      - name: Commit generated assets and script
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Add fixed demo images and 10s videos (accurate ACP text)"
-          file_pattern: 'demo-assets/*.jpg demo-assets/*.mp4'
+          file_pattern: 'demo-assets/*.jpg demo-assets/*.mp4 scripts/build_demo_assets.py'
