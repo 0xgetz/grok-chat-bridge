@@ -1,0 +1,26 @@
+name: Build demo assets
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/build_demo_assets.py'
+      - '.github/workflows/build-demo-assets.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg and fonts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+      - name: Build demo images and 10s videos
+        run: python3 scripts/build_demo_assets.py
+      - name: Commit generated assets
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Add fixed demo images and 10s videos (accurate ACP text)"
+          file_pattern: 'demo-assets/*.jpg demo-assets/*.mp4'
