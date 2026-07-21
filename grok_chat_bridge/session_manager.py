@@ -1,9 +1,8 @@
-"""One grok ACP session per chat user (platform + user id)."""
-
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +21,13 @@ class ChatKey:
 
 
 class SessionManager:
+    """One grok ACP session per chat user (platform + user id).
+
+    Uses LRU eviction (least-recently-used) when max_sessions exceeded.
+    Shared session dict mutations are protected by an asyncio lock for safety
+    under concurrent access from multiple platform bots.
+    """
+
     def __init__(
         self,
         *,
@@ -34,8 +40,9 @@ class SessionManager:
         self.grok_bin = grok_bin
         self.model = model
         self.max_sessions = max_sessions
-        self._sessions: dict[str, GrokAcpClient] = {}
+        self._sessions: OrderedDict[str, GrokAcpClient] = OrderedDict()
         self._locks: dict[str, asyncio.Lock] = {}
+        self._manager_lock: asyncio.Lock = asyncio.Lock()
 
     def _lock_for(self, key: str) -> asyncio.Lock:
         if key not in self._locks:
@@ -54,29 +61,42 @@ class SessionManager:
                 return await client.prompt(prompt)
 
     async def _get_or_create(self, key: str) -> GrokAcpClient:
-        if key in self._sessions:
-            return self._sessions[key]
+        async with self._manager_lock:
+            if key in self._sessions:
+                self._sessions.move_to_end(key)
+                return self._sessions[key]
 
-        if len(self._sessions) >= self.max_sessions:
-            oldest = next(iter(self._sessions))
-            await self._evict(oldest)
+            if len(self._sessions) >= self.max_sessions:
+                oldest = next(iter(self._sessions))
+                client_to_close = self._sessions.pop(oldest)
+            else:
+                client_to_close = None
 
-        client = GrokAcpClient(
-            grok_bin=self.grok_bin,
-            cwd=self.workdir,
-            model=self.model,
-        )
+            client = GrokAcpClient(
+                grok_bin=self.grok_bin,
+                cwd=self.workdir,
+                model=self.model,
+            )
+            self._sessions[key] = client
+            self._sessions.move_to_end(key)
+
+        if client_to_close:
+            await client_to_close.close()
+
         await client.start()
         await client.new_session(self.workdir)
-        self._sessions[key] = client
         logger.info("new ACP session %s -> %s", key, client.session_id)
         return client
 
     async def _evict(self, key: str) -> None:
-        client = self._sessions.pop(key, None)
+        async with self._manager_lock:
+            client = self._sessions.pop(key, None)
         if client:
             await client.close()
 
     async def close_all(self) -> None:
-        for key in list(self._sessions):
-            await self._evict(key)
+        async with self._manager_lock:
+            to_close = list(self._sessions.values())
+            self._sessions.clear()
+        for client in to_close:
+            await client.close()
