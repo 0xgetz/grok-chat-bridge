@@ -3,11 +3,14 @@
 Requires:
   WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN
 Optional:
+  WHATSAPP_APP_SECRET (for X-Hub-Signature-256 validation - recommended for production)
   WHATSAPP_WEBHOOK_HOST (default 0.0.0.0), WHATSAPP_WEBHOOK_PORT (default 8080)
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -42,6 +45,7 @@ class WhatsAppBot(PlatformBot):
                 "WHATSAPP_VERIFY_TOKEN is required (set in .env)"
             )
         self.verify_token = verify_token
+        self.app_secret = os.environ.get("WHATSAPP_APP_SECRET")
         self.host = os.environ.get("WHATSAPP_WEBHOOK_HOST", "0.0.0.0")
         self.port = int(os.environ.get("WHATSAPP_WEBHOOK_PORT", "8080"))
 
@@ -84,6 +88,22 @@ class WhatsAppBot(PlatformBot):
                     return
                 length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(length)
+
+                # Security: optional signature verification (Meta best practice)
+                if bot.app_secret:
+                    sig_header = self.headers.get("X-Hub-Signature-256", "")
+                    if not sig_header.startswith("sha256="):
+                        logger.warning("missing/invalid X-Hub-Signature-256 header")
+                        self.send_error(403)
+                        return
+                    expected_sig = "sha256=" + hmac.new(
+                        bot.app_secret.encode("utf-8"), body, hashlib.sha256
+                    ).hexdigest()
+                    if not hmac.compare_digest(expected_sig, sig_header):
+                        logger.warning("webhook signature mismatch - possible spoofing attempt")
+                        self.send_error(403)
+                        return
+
                 self.send_response(200)
                 self.end_headers()
                 asyncio.run_coroutine_threadsafe(
