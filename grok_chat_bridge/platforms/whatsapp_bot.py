@@ -24,9 +24,24 @@ class WhatsAppBot(PlatformBot):
 
     def __init__(self, sessions) -> None:
         super().__init__(sessions)
-        self.token = os.environ["WHATSAPP_ACCESS_TOKEN"]
-        self.phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
-        self.verify_token = os.environ["WHATSAPP_VERIFY_TOKEN"]
+        token = os.environ.get("WHATSAPP_ACCESS_TOKEN")
+        if not token:
+            raise RuntimeError(
+                "WHATSAPP_ACCESS_TOKEN is required (set in .env)"
+            )
+        self.token = token
+        phone_id = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
+        if not phone_id:
+            raise RuntimeError(
+                "WHATSAPP_PHONE_NUMBER_ID is required (set in .env)"
+            )
+        self.phone_id = phone_id
+        verify_token = os.environ.get("WHATSAPP_VERIFY_TOKEN")
+        if not verify_token:
+            raise RuntimeError(
+                "WHATSAPP_VERIFY_TOKEN is required (set in .env)"
+            )
+        self.verify_token = verify_token
         self.host = os.environ.get("WHATSAPP_WEBHOOK_HOST", "0.0.0.0")
         self.port = int(os.environ.get("WHATSAPP_WEBHOOK_PORT", "8080"))
 

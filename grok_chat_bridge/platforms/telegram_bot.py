@@ -15,7 +15,12 @@ class TelegramBot(PlatformBot):
 
     def __init__(self, sessions, token: str | None = None) -> None:
         super().__init__(sessions)
-        self.token = token or os.environ["TELEGRAM_BOT_TOKEN"]
+        token = token or os.environ.get("TELEGRAM_BOT_TOKEN")
+        if not token:
+            raise RuntimeError(
+                "TELEGRAM_BOT_TOKEN is required (set in .env or pass token=)"
+            )
+        self.token = token
 
     async def run(self) -> None:
         try:
@@ -40,7 +45,7 @@ class TelegramBot(PlatformBot):
             user_id = update.effective_user.id
             text = update.message.text
 
-            status = await update.message.reply_text("⏳ Thinking…")
+            status = await update.message.reply_text("\u23f3 Thinking\u2026")
             chunks: list[str] = []
 
             async def reply(msg: str) -> None:
@@ -53,5 +58,5 @@ class TelegramBot(PlatformBot):
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
-        logger.info("Telegram bot polling…")
+        logger.info("Telegram bot polling\u2026")
         await app.run_polling(drop_pending_updates=True)

@@ -15,7 +15,12 @@ class DiscordBot(PlatformBot):
 
     def __init__(self, sessions, token: str | None = None) -> None:
         super().__init__(sessions)
-        self.token = token or os.environ["DISCORD_BOT_TOKEN"]
+        token = token or os.environ.get("DISCORD_BOT_TOKEN")
+        if not token:
+            raise RuntimeError(
+                "DISCORD_BOT_TOKEN is required (set in .env or pass token=)"
+            )
+        self.token = token
 
     async def run(self) -> None:
         try:
@@ -56,5 +61,5 @@ class DiscordBot(PlatformBot):
                 for chunk in collected:
                     await message.reply(chunk[:2000])
 
-        logger.info("Discord bot connecting…")
+        logger.info("Discord bot connecting\u2026")
         await client.start(self.token)
