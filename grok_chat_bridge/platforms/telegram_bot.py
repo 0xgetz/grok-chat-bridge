@@ -45,7 +45,7 @@ class TelegramBot(PlatformBot):
             user_id = update.effective_user.id
             text = update.message.text
 
-            status = await update.message.reply_text("\u23f3 Thinking\u2026")
+            status = await update.message.reply_text("⏳ Thinking…")
             chunks: list[str] = []
 
             async def reply(msg: str) -> None:
@@ -58,5 +58,5 @@ class TelegramBot(PlatformBot):
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
-        logger.info("Telegram bot polling\u2026")
+        logger.info("Telegram bot polling…")
         await app.run_polling(drop_pending_updates=True)
