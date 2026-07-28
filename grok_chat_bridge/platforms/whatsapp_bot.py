@@ -62,6 +62,13 @@ class WhatsAppBot(PlatformBot):
         bot = self
         loop = asyncio.get_running_loop()
 
+        if not self.app_secret:
+            logger.warning(
+                "WHATSAPP_APP_SECRET is not set — webhook POSTs are not "
+                "signature-verified. Set it in production to enable "
+                "X-Hub-Signature-256 validation and reject spoofed traffic."
+            )
+
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, fmt, *args) -> None:
                 logger.debug(fmt, *args)
