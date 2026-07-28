@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -58,5 +59,16 @@ class TelegramBot(PlatformBot):
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
+        # run_polling() owns the event loop and breaks asyncio.gather with
+        # other platforms. Use the granular async API on the shared loop.
         logger.info("Telegram bot polling…")
-        await app.run_polling(drop_pending_updates=True)
+        await app.initialize()
+        await app.start()
+        assert app.updater is not None
+        await app.updater.start_polling(drop_pending_updates=True)
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await app.updater.stop()
+            await app.stop()
+            await app.shutdown()
