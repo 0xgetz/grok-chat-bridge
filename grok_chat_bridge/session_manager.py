@@ -72,19 +72,40 @@ class SessionManager:
             else:
                 client_to_close = None
 
-            client = GrokAcpClient(
-                grok_bin=self.grok_bin,
-                cwd=self.workdir,
-                model=self.model,
-            )
-            self._sessions[key] = client
-            self._sessions.move_to_end(key)
-
         if client_to_close:
             await client_to_close.close()
 
-        await client.start()
-        await client.new_session(self.workdir)
+        client = GrokAcpClient(
+            grok_bin=self.grok_bin,
+            cwd=self.workdir,
+            model=self.model,
+        )
+        try:
+            await client.start()
+            await client.new_session(self.workdir)
+        except Exception:
+            await client.close()
+            raise
+
+        async with self._manager_lock:
+            # Another coroutine may have created the same key while we were
+            # starting; prefer the existing live session and close ours.
+            if key in self._sessions:
+                await client.close()
+                self._sessions.move_to_end(key)
+                return self._sessions[key]
+
+            if len(self._sessions) >= self.max_sessions:
+                oldest = next(iter(self._sessions))
+                extra = self._sessions.pop(oldest)
+            else:
+                extra = None
+            self._sessions[key] = client
+            self._sessions.move_to_end(key)
+
+        if extra:
+            await extra.close()
+
         logger.info("new ACP session %s -> %s", key, client.session_id)
         return client
 
