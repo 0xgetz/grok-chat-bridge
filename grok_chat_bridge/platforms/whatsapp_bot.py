@@ -21,6 +21,9 @@ from .base import PlatformBot
 
 logger = logging.getLogger(__name__)
 
+# Hard cap on inbound webhook body to avoid unbounded memory allocation.
+_MAX_WEBHOOK_BODY_BYTES = 1_048_576  # 1 MiB
+
 
 class WhatsAppBot(PlatformBot):
     name = "whatsapp"
@@ -82,7 +85,9 @@ class WhatsAppBot(PlatformBot):
                 mode = qs.get("hub.mode", [""])[0]
                 token = qs.get("hub.verify_token", [""])[0]
                 challenge = qs.get("hub.challenge", [""])[0]
-                if mode == "subscribe" and token == bot.verify_token:
+                # Constant-time compare to reduce timing side-channels.
+                token_ok = hmac.compare_digest(token, bot.verify_token)
+                if mode == "subscribe" and token_ok:
                     self.send_response(200)
                     self.end_headers()
                     self.wfile.write(challenge.encode())
@@ -93,7 +98,19 @@ class WhatsAppBot(PlatformBot):
                 if self.path != "/webhook":
                     self.send_error(404)
                     return
-                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                except (TypeError, ValueError):
+                    self.send_error(400)
+                    return
+                if length < 0 or length > _MAX_WEBHOOK_BODY_BYTES:
+                    logger.warning(
+                        "rejecting webhook body: Content-Length=%s (max %s)",
+                        length,
+                        _MAX_WEBHOOK_BODY_BYTES,
+                    )
+                    self.send_error(413)
+                    return
                 body = self.rfile.read(length)
 
                 # Security: optional signature verification (Meta best practice)
