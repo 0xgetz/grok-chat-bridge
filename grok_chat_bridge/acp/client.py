@@ -69,6 +69,8 @@ class GrokAcpClient:
 
         self._proc: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
+        self._stderr_task: asyncio.Task[None] | None = None
+        self._stderr_chunks: list[bytes] = []
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._update_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._next_id = 1
@@ -103,6 +105,8 @@ class GrokAcpClient:
             stderr=asyncio.subprocess.PIPE,
             cwd=str(self.cwd),
         )
+        self._stderr_chunks = []
+        self._stderr_task = asyncio.create_task(self._drain_stderr_loop())
         self._reader_task = asyncio.create_task(self._read_loop())
         return await self.initialize()
 
@@ -192,6 +196,12 @@ class GrokAcpClient:
                 await self._reader_task
             except asyncio.CancelledError:
                 pass
+        if self._stderr_task:
+            self._stderr_task.cancel()
+            try:
+                await self._stderr_task
+            except asyncio.CancelledError:
+                pass
         if self._proc and self._proc.returncode is None:
             self._proc.terminate()
             try:
@@ -248,7 +258,7 @@ class GrokAcpClient:
         rc = await self._proc.wait() if self._proc else -1
         if not self._closed:
             logger.error("grok exited with code %s", rc)
-            err = await self._drain_stderr()
+            err = b"".join(self._stderr_chunks).decode(errors="replace")
             if err:
                 logger.error("grok stderr: %s", err[-2000:])
             for fut in self._pending.values():
@@ -256,14 +266,25 @@ class GrokAcpClient:
                     fut.set_exception(GrokAcpError(f"grok exited ({rc})"))
             raise GrokAcpError(f"grok subprocess exited with code {rc}")
 
-    async def _drain_stderr(self) -> str:
+    async def _drain_stderr_loop(self) -> None:
+        """Continuously read stderr so the OS pipe buffer cannot fill and block."""
         if not self._proc or not self._proc.stderr:
-            return ""
+            return
         try:
-            data = await asyncio.wait_for(self._proc.stderr.read(), timeout=1)
-            return data.decode(errors="replace")
-        except asyncio.TimeoutError:
-            return ""
+            while True:
+                chunk = await self._proc.stderr.read(4096)
+                if not chunk:
+                    break
+                self._stderr_chunks.append(chunk)
+                # Bound retained diagnostics to avoid unbounded growth.
+                total = sum(len(c) for c in self._stderr_chunks)
+                while total > 64_000 and len(self._stderr_chunks) > 1:
+                    dropped = self._stderr_chunks.pop(0)
+                    total -= len(dropped)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("stderr drain ended", exc_info=True)
 
     async def _dispatch(self, msg: dict[str, Any]) -> None:
         # Agent → client request (needs response)
