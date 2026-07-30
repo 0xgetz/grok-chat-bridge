@@ -10,6 +10,9 @@ from .base import PlatformBot
 
 logger = logging.getLogger(__name__)
 
+# Telegram Bot API hard limit for message text.
+_TELEGRAM_MAX_MESSAGE = 4096
+
 
 class TelegramBot(PlatformBot):
     name = "telegram"
@@ -53,8 +56,16 @@ class TelegramBot(PlatformBot):
                 chunks.append(msg)
 
             await self.handle_message(user_id, text, reply)
-            final = "\n\n".join(chunks) if chunks else "(empty response)"
-            await status.edit_text(final[:4096])
+
+            if not chunks:
+                await status.edit_text("(empty response)")
+                return
+
+            # First chunk replaces the status bubble; further chunks are
+            # new messages so long replies are not silently truncated.
+            await status.edit_text(chunks[0][:_TELEGRAM_MAX_MESSAGE])
+            for extra in chunks[1:]:
+                await update.message.reply_text(extra[:_TELEGRAM_MAX_MESSAGE])
 
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
