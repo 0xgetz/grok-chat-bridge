@@ -2,6 +2,10 @@
 
 Telegram, Discord, and WhatsApp bots that use **[grok](https://github.com/xai-org/grok-build)** as the AI backend via the **Agent Client Protocol (ACP)** — no Rust crates imported.
 
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: Apache-2.0](https://img.shields.io/github/license/0xgetz/grok-chat-bridge)](LICENSE)
+[![Build](https://github.com/0xgetz/grok-chat-bridge/actions/workflows/build-demo-assets.yml/badge.svg)](https://github.com/0xgetz/grok-chat-bridge/actions/workflows/build-demo-assets.yml)
+
 ```
 Chat user  →  Platform bot  →  grok-chat-bridge  →  grok agent stdio  →  xAI
                 (Telegram/       (Python ACP          (JSON-RPC over
