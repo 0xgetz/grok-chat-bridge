@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 from .base import PlatformBot
 
@@ -48,7 +49,8 @@ class DiscordBot(PlatformBot):
                 return
 
             user_id = message.author.id
-            text = message.content.replace(f"<@{client.user.id}>", "").strip()
+            # Strip both mention forms (<@id> and nickname <@!id>).
+            text = re.sub(rf"<@!?{client.user.id}>", "", message.content).strip()
 
             async with message.channel.typing():
                 collected: list[str] = []
@@ -56,10 +58,12 @@ class DiscordBot(PlatformBot):
                 async def reply(msg: str) -> None:
                     collected.append(msg)
 
-                await self.handle_message(user_id, text, reply)
+                # Discord's message limit is 2000 chars; handle_message chunks
+                # to fit so long grok replies are never silently truncated.
+                await self.handle_message(user_id, text, reply, max_chunk=2000)
 
                 for chunk in collected:
-                    await message.reply(chunk[:2000])
+                    await message.reply(chunk)
 
         logger.info("Discord bot connecting\u2026")
         await client.start(self.token)

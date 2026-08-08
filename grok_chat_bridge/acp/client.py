@@ -71,6 +71,10 @@ class GrokAcpClient:
         self._reader_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
         self._stderr_chunks: list[bytes] = []
+        self._stderr_total = 0
+        # Serializes prompt turns so two prompts never interleave on the same
+        # JSON-RPC session (one grok subprocess per client).
+        self._prompt_lock: asyncio.Lock = asyncio.Lock()
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._update_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._next_id = 1
@@ -106,6 +110,7 @@ class GrokAcpClient:
             cwd=str(self.cwd),
         )
         self._stderr_chunks = []
+        self._stderr_total = 0
         self._stderr_task = asyncio.create_task(self._drain_stderr_loop())
         self._reader_task = asyncio.create_task(self._read_loop())
         return await self.initialize()
@@ -138,44 +143,47 @@ class GrokAcpClient:
         if not self._session_id:
             raise GrokAcpError("no session — call new_session() first")
 
-        req_id = self._alloc_id()
-        message = {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "method": "session/prompt",
-            "params": {
-                "sessionId": self._session_id,
-                "prompt": [{"type": "text", "text": text}],
-            },
-        }
-        await self._send(message)
-        response_future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        self._pending[req_id] = response_future
+        # Hold the per-session lock for the whole turn: grok owns a single
+        # JSON-RPC stream, so concurrent prompts would interleave updates.
+        async with self._prompt_lock:
+            req_id = self._alloc_id()
+            message = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "method": "session/prompt",
+                "params": {
+                    "sessionId": self._session_id,
+                    "prompt": [{"type": "text", "text": text}],
+                },
+            }
+            await self._send(message)
+            response_future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+            self._pending[req_id] = response_future
 
-        try:
-            while True:
-                if response_future.done():
-                    result = response_future.result()
-                    if result.get("error"):
-                        raise GrokAcpError(f"session/prompt error: {result['error']}")
-                    return
+            try:
+                while True:
+                    if response_future.done():
+                        result = response_future.result()
+                        if result.get("error"):
+                            raise GrokAcpError(f"session/prompt error: {result['error']}")
+                        return
 
-                try:
-                    update_msg = await asyncio.wait_for(
-                        self._update_queue.get(), timeout=0.2
+                    try:
+                        update_msg = await asyncio.wait_for(
+                            self._update_queue.get(), timeout=0.2
+                        )
+                    except asyncio.TimeoutError:
+                        continue
+
+                    update = update_msg.get("params", {}).get("update", {})
+                    if not update:
+                        continue
+                    yield PromptUpdate(
+                        session_update=str(update.get("sessionUpdate", "")),
+                        raw=update,
                     )
-                except asyncio.TimeoutError:
-                    continue
-
-                update = update_msg.get("params", {}).get("update", {})
-                if not update:
-                    continue
-                yield PromptUpdate(
-                    session_update=str(update.get("sessionUpdate", "")),
-                    raw=update,
-                )
-        finally:
-            self._pending.pop(req_id, None)
+            finally:
+                self._pending.pop(req_id, None)
 
     async def prompt(self, text: str) -> PromptResult:
         chunks: list[str] = []
@@ -190,17 +198,16 @@ class GrokAcpClient:
         if self._closed:
             return
         self._closed = True
-        if self._reader_task:
-            self._reader_task.cancel()
+        for task in (self._reader_task, self._stderr_task):
+            if task is None:
+                continue
+            task.cancel()
             try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
-        if self._stderr_task:
-            self._stderr_task.cancel()
-            try:
-                await self._stderr_task
-            except asyncio.CancelledError:
+                await task
+            except (asyncio.CancelledError, Exception):
+                # If the subprocess already died, the reader task raises
+                # GrokAcpError here; that failure was already surfaced to the
+                # caller via the pending request futures, so swallow it.
                 pass
         if self._proc and self._proc.returncode is None:
             self._proc.terminate()
@@ -276,11 +283,11 @@ class GrokAcpClient:
                 if not chunk:
                     break
                 self._stderr_chunks.append(chunk)
+                self._stderr_total += len(chunk)
                 # Bound retained diagnostics to avoid unbounded growth.
-                total = sum(len(c) for c in self._stderr_chunks)
-                while total > 64_000 and len(self._stderr_chunks) > 1:
+                while self._stderr_total > 64_000 and len(self._stderr_chunks) > 1:
                     dropped = self._stderr_chunks.pop(0)
-                    total -= len(dropped)
+                    self._stderr_total -= len(dropped)
         except asyncio.CancelledError:
             raise
         except Exception:

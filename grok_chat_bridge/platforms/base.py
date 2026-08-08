@@ -18,8 +18,14 @@ class PlatformBot(abc.ABC):
     async def run(self) -> None:
         """Block until the platform disconnects."""
 
-    async def handle_message(self, user_id: str, text: str, reply) -> None:
-        """Shared grok round-trip; `reply(text)` sends platform response."""
+    async def handle_message(
+        self, user_id: str, text: str, reply, max_chunk: int = 4000
+    ) -> None:
+        """Shared grok round-trip; `reply(text)` sends platform response.
+
+        `max_chunk` is the platform's hard text limit (Discord: 2000,
+        Telegram/WhatsApp: ~4000). Replies are split so nothing is truncated.
+        """
         text = text.strip()
         if not text:
             await reply("Send a non-empty message.")
@@ -29,8 +35,7 @@ class PlatformBot(abc.ABC):
         try:
             result = await self.sessions.ask(chat, text)
             body = result.text.strip() or "(no text response — check tool output in logs)"
-            # Platform message limits vary; chunk for Discord/Telegram
-            for chunk in _chunk(body, 4000):
+            for chunk in _chunk(body, max_chunk):
                 await reply(chunk)
         except Exception as exc:
             logger.exception("grok error for %s", chat.as_str())

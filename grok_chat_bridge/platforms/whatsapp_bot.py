@@ -9,8 +9,10 @@ Optional:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -59,8 +61,6 @@ class WhatsAppBot(PlatformBot):
             raise RuntimeError(
                 "Install whatsapp extra: pip install 'grok-chat-bridge[whatsapp]'"
             ) from exc
-
-        import asyncio
 
         bot = self
         loop = asyncio.get_running_loop()
@@ -144,13 +144,11 @@ class WhatsAppBot(PlatformBot):
         # Keep asyncio task alive
         try:
             while True:
-                await __import__("asyncio").sleep(3600)
+                await asyncio.sleep(3600)
         finally:
             server.shutdown()
 
     async def _on_webhook(self, body: bytes, httpx_module) -> None:
-        import json
-
         try:
             payload = json.loads(body)
         except json.JSONDecodeError:

@@ -25,7 +25,8 @@ class SessionManager:
 
     Uses LRU eviction (least-recently-used) when max_sessions exceeded.
     Shared session dict mutations are protected by an asyncio lock for safety
-    under concurrent access from multiple platform bots.
+    under concurrent access from multiple platform bots. Prompts on the same
+    session are serialized by a per-client lock (see GrokAcpClient).
     """
 
     def __init__(
@@ -41,24 +42,17 @@ class SessionManager:
         self.model = model
         self.max_sessions = max_sessions
         self._sessions: OrderedDict[str, GrokAcpClient] = OrderedDict()
-        self._locks: dict[str, asyncio.Lock] = {}
         self._manager_lock: asyncio.Lock = asyncio.Lock()
-
-    def _lock_for(self, key: str) -> asyncio.Lock:
-        if key not in self._locks:
-            self._locks[key] = asyncio.Lock()
-        return self._locks[key]
 
     async def ask(self, chat: ChatKey, prompt: str) -> PromptResult:
         key = chat.as_str()
-        async with self._lock_for(key):
+        client = await self._get_or_create(key)
+        try:
+            return await client.prompt(prompt)
+        except GrokAcpError:
+            await self._evict(key)
             client = await self._get_or_create(key)
-            try:
-                return await client.prompt(prompt)
-            except GrokAcpError:
-                await self._evict(key)
-                client = await self._get_or_create(key)
-                return await client.prompt(prompt)
+            return await client.prompt(prompt)
 
     async def _get_or_create(self, key: str) -> GrokAcpClient:
         async with self._manager_lock:
